@@ -11,6 +11,7 @@ import QuickLookThumbnailing
 import PDFKit
 import Quartz
 import Vision
+import Aptabase
 
 struct ImageItem: Identifiable {
     let id = UUID()
@@ -871,6 +872,9 @@ struct ContentView: View {
     }
 
     func convertImages() {
+        Aptabase.shared.trackEvent("tapped convert", with:
+                                    ["output format" : selectedOutputFormat.name]
+        )
         guard !fileTypeState.items(for: windowId).isEmpty else { return }
         isConverting = true
         errorMessage = nil

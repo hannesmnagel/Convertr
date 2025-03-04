@@ -24,7 +24,6 @@ struct SettingsView: View {
                     
                     if showThumbnails {
                         HStack {
-                            Text("Thumbnail size")
                             Slider(value: $thumbnailSize, in: 40...200) {
                                 Text("Thumbnail size")
                             }
@@ -81,57 +80,87 @@ struct SettingsView: View {
     }
 }
 
+import Aptabase
+
 @main
 struct ConvertrApp: App {
     @StateObject private var windowManager = ConversionWindowManager()
     @StateObject private var fileTypeState = FileTypeState.shared
-    
+
+    init(){
+        Aptabase.shared.initialize(appKey: "A-SH-2536426356", with: .init(host: "https://analytics.hannesnagel.com"), userDefaultsGroup: "group.com.nagel.convertr")
+    }
+
     var body: some Scene {
         
         // Images window
         Window("Images", id: "Images") {
             ConversionWindow(windowId: "Images")
                 .environmentObject(windowManager)
+                .onAppear{
+                    Aptabase.shared.trackEvent("Opened Images Window")
+                }
         }
         
         // PDF Documents window
         Window("PDF Documents", id: "PDF Documents") {
             ConversionWindow(windowId: "PDF Documents")
                 .environmentObject(windowManager)
+                .onAppear {
+                    Aptabase.shared.trackEvent("Opened PDF Documents Window")
+                }
         }
         
         // Text Documents window
         Window("Text Documents", id: "Text Documents") {
             ConversionWindow(windowId: "Text Documents")
                 .environmentObject(windowManager)
+                .onAppear {
+                    Aptabase.shared.trackEvent("Opened Text Documents Window")
+                }
         }
         
         // Word Documents window
         Window("Word Documents", id: "Word Documents") {
             ConversionWindow(windowId: "Word Documents")
                 .environmentObject(windowManager)
+                .onAppear {
+                    Aptabase.shared.trackEvent("Opened Word Documents Window")
+                }
         }
         
         // Spreadsheets window
         Window("Spreadsheets", id: "Spreadsheets") {
             ConversionWindow(windowId: "Spreadsheets")
                 .environmentObject(windowManager)
+                .onAppear {
+                    Aptabase.shared.trackEvent("Opened Spreadsheets Window")
+                }
         }
         
         // Presentations window
         Window("Presentations", id: "Presentations") {
             ConversionWindow(windowId: "Presentations")
                 .environmentObject(windowManager)
+                .onAppear {
+                    Aptabase.shared.trackEvent("Opened Presentations Window")
+                }
         }
         
         // Other Files window
         Window("Other Files", id: "Other Files") {
             ConversionWindow(windowId: "Other Files")
                 .environmentObject(windowManager)
+                .onAppear {
+                    Aptabase.shared.trackEvent("Opened Other Files Window")
+                }
         }
         
         Settings {
             SettingsView()
+                .onAppear {
+                    Aptabase.shared.trackEvent("Opened Settings")
+                }
         }
     }
 }

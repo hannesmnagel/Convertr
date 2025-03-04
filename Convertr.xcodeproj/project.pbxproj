@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		38143C542D775CF400AF6968 /* Aptabase in Frameworks */ = {isa = PBXBuildFile; productRef = 38143C532D775CF400AF6968 /* Aptabase */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		38143C322D77052000AF6968 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -52,6 +56,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				38143C542D775CF400AF6968 /* Aptabase in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -112,6 +117,7 @@
 			);
 			name = Convertr;
 			packageProductDependencies = (
+				38143C532D775CF400AF6968 /* Aptabase */,
 			);
 			productName = Convertr;
 			productReference = 38143C202D77051F00AF6968 /* Convertr.app */;
@@ -195,6 +201,9 @@
 			);
 			mainGroup = 38143C172D77051F00AF6968;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				38143C522D775CF400AF6968 /* XCRemoteSwiftPackageReference "aptabase-swift" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 38143C212D77051F00AF6968 /* Products */;
 			projectDirPath = "";
@@ -549,6 +558,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		38143C522D775CF400AF6968 /* XCRemoteSwiftPackageReference "aptabase-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/hannesmnagel/aptabase-swift.git";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		38143C532D775CF400AF6968 /* Aptabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 38143C522D775CF400AF6968 /* XCRemoteSwiftPackageReference "aptabase-swift" */;
+			productName = Aptabase;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 38143C182D77051F00AF6968 /* Project object */;
 }
