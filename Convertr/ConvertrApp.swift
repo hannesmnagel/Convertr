@@ -88,7 +88,7 @@ struct ConvertrApp: App {
     @StateObject private var fileTypeState = FileTypeState.shared
 
     init(){
-        Aptabase.shared.initialize(appKey: "A-SH-2536426356", with: .init(host: "https://analytics.hannesnagel.com"), userDefaultsGroup: "group.com.nagel.convertr")
+        Aptabase.shared.initialize(appKey: "A-SH-1638672524", with: .init(host: "https://analytics.hannesnagel.com"), userDefaultsGroup: nil)
     }
 
     var body: some Scene {

@@ -762,7 +762,23 @@ struct ContentView: View {
     }
 
     private func renderTextAsImage(_ text: String) async -> NSImage? {
-        print("Rendering text as image")
+        print("Attempting to render text as image")
+        
+        // First try to decode as base64
+        print("Attempting to decode as base64")
+        if let data = Data(base64Encoded: text) {
+            print("Successfully decoded base64 data")
+            if let image = NSImage(data: data) {
+                print("Successfully created image from base64 data")
+                return image
+            } else {
+                print("Failed to create image from base64 data")
+            }
+        } else {
+            print("Text is not valid base64 data")
+        }
+        
+        print("Falling back to text rendering")
         // Add padding to make the text more readable
         let padding: CGFloat = 20
         let maxWidth: CGFloat = 800 // Maximum width for better readability
