@@ -334,68 +334,175 @@ struct ContentView: View {
                 )
             )
             .frame(minHeight: 200, maxHeight: .infinity)
-            .onDrop(of: [UTType.fileURL.identifier], isTargeted: $dragOver) { providers -> Bool in
+            .onDrop(of: [UTType.fileURL.identifier, UTType.plainText.identifier], isTargeted: $dragOver) { providers -> Bool in
                 print("Drop received with \(providers.count) providers")
-                Task{
+                Task {
                     let newItems = await withTaskGroup(of: [ImageItem].self) { group in
                         for provider in providers {
-
                             print("Provider types:", provider.registeredTypeIdentifiers)
-
+                            print("Available types for provider:", provider.registeredTypeIdentifiers)
+                            
                             group.addTask {
                                 do {
-                                    let url = try await withCheckedThrowingContinuation { con in
-                                        provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { (urlData, error) in
-                                            if let error = error {
-                                                print("Error loading URL:", error)
-                                                return
-                                            }
-
-                                            if let urlData = urlData as? Data,
-                                               let urlString = String(data: urlData, encoding: .utf8) {
-                                                print("URL string received:", urlString)
-
-                                                // Create URL from the file path, handling both file:// and direct paths
-                                                let cleanPath = urlString.replacingOccurrences(of: "file://", with: "")
-                                                let url = URL(fileURLWithPath: cleanPath)
-                                                print("Processing URL:", url.path)
-                                                con.resume(returning: url)
+                                    // Try to load as plain text first
+                                    if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
+                                        print("Attempting to load as plain text")
+                                        
+                                        // Load the item and check its type
+                                        let item = try await provider.loadItem(forTypeIdentifier: UTType.plainText.identifier)
+                                        print("Got item of type:", type(of: item))
+                                        
+                                        if let url = item as? URL ?? (item as? NSURL) as URL? {
+                                            print("Got URL from text provider:", url)
+                                            
+                                            // Try multiple approaches to access the file
+                                            var fileAccessGranted = false
+                                            var fileContent: String? = nil
+                                            
+                                            // First try: Direct security-scoped access
+                                            if url.startAccessingSecurityScopedResource() {
+                                                print("Successfully accessed security-scoped resource")
+                                                fileAccessGranted = true
+                                                defer { url.stopAccessingSecurityScopedResource() }
+                                                
+                                                do {
+                                                    fileContent = try String(contentsOf: url, encoding: .utf8)
+                                                    print("Successfully read file content, length:", fileContent?.count ?? 0)
+                                                } catch {
+                                                    print("Error reading file with security-scoped access:", error)
+                                                }
                                             } else {
-                                                print("Could not process URL data")
-                                                con.resume(throwing: NSError(domain: "up", code: 12))
+                                                print("Failed to access security-scoped resource, trying alternative methods")
                                             }
+                                            
+                                            // Second try: Direct file access
+                                            if fileContent == nil {
+                                                do {
+                                                    fileContent = try String(contentsOf: url, encoding: .utf8)
+                                                    print("Successfully read file content through direct access, length:", fileContent?.count ?? 0)
+                                                } catch {
+                                                    print("Error reading file through direct access:", error)
+                                                }
+                                            }
+                                            
+                                            // Third try: File handle approach
+                                            if fileContent == nil {
+                                                do {
+                                                    let fileHandle = try FileHandle(forReadingFrom: url)
+                                                    defer { try? fileHandle.close() }
+                                                    let data = try fileHandle.readToEnd()
+                                                    if let data = data,
+                                                       let content = String(data: data, encoding: .utf8) {
+                                                        fileContent = content
+                                                        print("Successfully read file content using file handle, length:", content.count)
+                                                    }
+                                                } catch {
+                                                    print("Error reading file using file handle:", error)
+                                                }
+                                            }
+                                            
+                                            // If we got the content, render it
+                                            if let content = fileContent {
+                                                if let image = await renderTextAsImage(content) {
+                                                    print("Successfully rendered text as image")
+                                                    return [ImageItem(image: image, originalURL: url)]
+                                                } else {
+                                                    print("Failed to render text as image")
+                                                }
+                                            } else {
+                                                print("Failed to read file content through all available methods")
+                                            }
+                                            
+                                            return []
                                         }
                                     }
-                                    let items = await loadDocument(from: url)
-                                    return items
+                                    
+                                    // Only try file URL if we haven't handled it above
+                                    if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                                        print("Attempting to load as file URL")
+                                        do {
+                                            let urlResult = try await provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier)
+                                            print("Got URL result of type:", type(of: urlResult))
+                                            
+                                            let url: URL
+                                            if let directURL = urlResult as? URL {
+                                                url = directURL
+                                            } else if let nsurl = urlResult as? NSURL {
+                                                url = nsurl as URL
+                                            } else if let urlData = urlResult as? Data,
+                                                      let urlString = String(data: urlData, encoding: .utf8) {
+                                                // Remove "file://" prefix if present and create URL
+                                                let cleanPath = urlString.replacingOccurrences(of: "file://", with: "")
+                                                url = URL(fileURLWithPath: cleanPath)
+                                            } else {
+                                                print("Unexpected URL result type:", type(of: urlResult))
+                                                return []
+                                            }
+                                            
+                                            print("Processing URL:", url)
+                                            
+                                            // Try to access the file
+                                            var items: [ImageItem] = []
+                                            
+                                            // First try: Direct security-scoped access
+                                            if url.startAccessingSecurityScopedResource() {
+                                                print("Successfully accessed security-scoped resource")
+                                                defer { url.stopAccessingSecurityScopedResource() }
+                                                items = await loadDocument(from: url)
+                                            } else {
+                                                print("Failed to access security-scoped resource, trying direct access")
+                                            }
+                                            
+                                            // Second try: Direct access
+                                            if items.isEmpty {
+                                                print("Attempting direct file access")
+                                                items = await loadDocument(from: url)
+                                            }
+                                            
+                                            print("Loaded \(items.count) items from document")
+                                            return items
+                                        } catch {
+                                            print("Error loading URL from provider:", error)
+                                            print("Error details - Domain:", (error as NSError).domain)
+                                            print("Error details - Code:", (error as NSError).code)
+                                            print("Error details - Description:", error.localizedDescription)
+                                        }
+                                    } else {
+                                        print("Provider does not support file URL")
+                                    }
                                 } catch {
-                                    return []
+                                    print("Error loading dropped item:", error)
+                                    print("Error details - Domain:", (error as NSError).domain)
+                                    print("Error details - Code:", (error as NSError).code)
+                                    print("Error details - Description:", (error as NSError).localizedDescription)
+                                    print("Error details - User Info:", (error as NSError).userInfo)
                                 }
+                                return []
                             }
                         }
                         var items: [ImageItem] = []
                         for await newItems in group {
                             items.append(contentsOf: newItems)
                         }
+                        print("Total items collected:", items.count)
                         return items
                     }
 
-                    // Split items by type and create windows
                     let groupedItems = self.windowManager.splitItemsByType(newItems)
                     print("Grouped items:", groupedItems.keys)
+                    print("Items per group:", groupedItems.mapValues { $0.count })
 
                     for (type, items) in groupedItems {
                         if type == windowId {
-                            // Add to current window if type matches
+                            print("Adding \(items.count) items to current window")
                             fileTypeState.addItems(items, type: type)
                         } else {
-                            // Open new window for different type
+                            print("Opening new window for type:", type)
                             openWindow(id: type)
                             fileTypeState.addItems(items, type: type)
                         }
                     }
                 }
-
                 return true
             }
 
@@ -505,175 +612,75 @@ struct ContentView: View {
 
     private func handleImageDrop(_ providers: [NSItemProvider]) -> Bool {
         print("Drop received with \(providers.count) providers")
-        let group = DispatchGroup()
-        var loadedItemCount = 0
-        let totalItems = providers.count
 
-        // Create an actor to safely collect items
         actor ItemCollector {
             private var items: [ImageItem] = []
 
-            func add(_ item: ImageItem) {
-                items.append(item)
-            }
-
-            func addItems(_ newItems: [ImageItem]) {
-                items.append(contentsOf: newItems)
-            }
-
-            func getAllItems() -> [ImageItem] {
-                return items
-            }
+            func add(_ item: ImageItem) { items.append(item) }
+            func addItems(_ newItems: [ImageItem]) { items.append(contentsOf: newItems) }
+            func getAllItems() -> [ImageItem] { items }
         }
 
         let collector = ItemCollector()
+        let imageTypes = [UTType.image.identifier, UTType.png.identifier, UTType.jpeg.identifier,
+                          UTType.tiff.identifier, UTType.gif.identifier, UTType.bmp.identifier,
+                          UTType.heic.identifier]
 
-        for provider in providers {
-            group.enter()
-            print("Provider types:", provider.registeredTypeIdentifiers)
-            print("Checking provider:", provider)
+        Task {
+            for provider in providers {
+                print("Provider types:", provider.registeredTypeIdentifiers)
 
-            // Try loading as text first for plain text
-            if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
-                print("Provider has plain text")
-                provider.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { (textData, error) in
-                    if let error = error {
-                        print("Error loading text:", error)
-                        loadedItemCount += 1
-                        group.leave()
-                        return
-                    }
-
-                    print("Text data received:", textData as Any)
-
-                    if let urlData = textData as? Data,
-                       let urlString = String(data: urlData, encoding: .utf8) {
-                        print("Processing URL string:", urlString)
-                        // Create URL from the file path
+                if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
+                    if let textData = try? await provider.loadItem(forTypeIdentifier: UTType.plainText.identifier) as? Data,
+                       let urlString = String(data: textData, encoding: .utf8) {
                         let url = URL(fileURLWithPath: urlString.replacingOccurrences(of: "file://", with: ""))
-                        print("Created URL:", url)
-
-                        Task {
-                            let items = await loadDocument(from: url)
-                            if !items.isEmpty {
-                                await collector.addItems(items)
-                            }
-                            loadedItemCount += 1
-                            group.leave()
-                        }
-                    } else if let text = textData as? String {
-                        print("Processing as plain text:", text)
-                        Task {
-                            if let image = await renderTextAsImage(text) {
-                                await collector.add(ImageItem(image: image, originalURL: nil))
-                            }
-                            loadedItemCount += 1
-                            group.leave()
-                        }
-                    } else {
-                        print("Could not process text data type:", type(of: textData))
-                        loadedItemCount += 1
-                        group.leave()
+                        let items = await loadDocument(from: url)
+                        await collector.addItems(items)
+                    } else if let text = try? await provider.loadItem(forTypeIdentifier: UTType.plainText.identifier) as? String,
+                              let image = await renderTextAsImage(text) {
+                        await collector.add(ImageItem(image: image, originalURL: nil))
                     }
+                    continue
                 }
-                continue
-            }
 
-            // Try loading as URL if not text
-            if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-                print("Provider has file URL")
-                provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { (urlData, error) in
-                    print("URL Data received:", urlData as Any)
-                    if let error = error {
-                        print("Error loading URL:", error)
-                    }
-                    if let urlData = urlData as? Data,
-                       let urlString = String(data: urlData, encoding: .utf8),
-                       let url = URL(string: urlString) {
-                        print("Successfully created URL:", url)
-                        Task {
-                            let items = await loadDocument(from: url)
-                            if !items.isEmpty {
-                                await collector.addItems(items)
-                            }
-                            loadedItemCount += 1
-                            group.leave()
-                        }
-                    } else {
-                        print("Failed to process URL data")
-                        loadedItemCount += 1
-                        group.leave()
-                    }
+                if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier),
+                   let urlData = try? await provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier) as? URL {
+                    let items = await loadDocument(from: urlData)
+                    await collector.addItems(items)
+                    continue
                 }
-                continue
-            }
 
-            // Try loading as PDF
-            if provider.hasItemConformingToTypeIdentifier(UTType.pdf.identifier) {
-                provider.loadDataRepresentation(forTypeIdentifier: UTType.pdf.identifier) { data, error in
-                    if let data = data, let pdfDoc = PDFDocument(data: data) {
-                        Task {
-                            for i in 0..<pdfDoc.pageCount {
-                                if let page = pdfDoc.page(at: i),
-                                   let pageImage = await self.renderPDFPage(page) {
-                                    await collector.add(ImageItem(image: pageImage, originalURL: nil))
-                                }
-                            }
-                            group.leave()
+                if provider.hasItemConformingToTypeIdentifier(UTType.pdf.identifier),
+                   let data = try? await provider.loadDataRepresentation(forTypeIdentifier: UTType.pdf.identifier),
+                   let pdfDoc = PDFDocument(data: data) {
+                    for i in 0..<pdfDoc.pageCount {
+                        if let page = pdfDoc.page(at: i),
+                           let pageImage = await self.renderPDFPage(page) {
+                            await collector.add(ImageItem(image: pageImage, originalURL: nil))
                         }
-                    } else {
-                        group.leave()
                     }
+                    continue
                 }
-                continue
-            }
 
-            // Finally try as image data
-            let imageTypes = [UTType.image.identifier, UTType.png.identifier, UTType.jpeg.identifier,
-                              UTType.tiff.identifier, UTType.gif.identifier, UTType.bmp.identifier,
-                              UTType.heic.identifier]
-
-            var handled = false
-            for imageType in imageTypes {
-                if provider.hasItemConformingToTypeIdentifier(imageType) {
-                    handled = true
-                    provider.loadDataRepresentation(forTypeIdentifier: imageType) { data, error in
-                        Task {
-                            if let imageData = data, let image = NSImage(data: imageData) {
-                                await collector.add(ImageItem(image: image, originalURL: nil))
-                            }
-                            group.leave()
-                        }
+                for imageType in imageTypes where provider.hasItemConformingToTypeIdentifier(imageType) {
+                    if let imageData = try? await provider.loadDataRepresentation(forTypeIdentifier: imageType),
+                       let image = NSImage(data: imageData) {
+                        await collector.add(ImageItem(image: image, originalURL: nil))
                     }
                     break
                 }
             }
 
-            if !handled {
-                group.leave()
-            }
-        }
+            let newItems = await collector.getAllItems()
+            print("All items processed, new items count: \(newItems.count)")
 
-        group.notify(queue: .main) {
-            Task {
-                let newItems = await collector.getAllItems()
-                print("All items processed")
-                print("Loaded \(loadedItemCount) items out of \(totalItems)")
-                print("New items count: \(newItems.count)")
-
-                // Split items by type and create windows
-                let groupedItems = self.windowManager.splitItemsByType(newItems)
-                print("Grouped items:", groupedItems.keys)
-
-                for (type, items) in groupedItems {
-                    if type == self.windowId {
-                        // Add to current window if type matches
-                        self.fileTypeState.addItems(items, type: type)
-                    } else {
-                        // Open new window for different type
-                        self.openWindow(id: type)
-                        self.fileTypeState.addItems(items, type: type)
-                    }
+            let groupedItems = self.windowManager.splitItemsByType(newItems)
+            for (type, items) in groupedItems {
+                if type == self.windowId {
+                    self.fileTypeState.addItems(items, type: type)
+                } else {
+                    self.openWindow(id: type)
+                    self.fileTypeState.addItems(items, type: type)
                 }
             }
         }
@@ -682,12 +689,45 @@ struct ContentView: View {
     }
 
     private func loadDocument(from url: URL) async -> [ImageItem] {
+        print("Loading document from URL:", url)
         let fileExtension = url.pathExtension.lowercased()
+        print("File extension:", fileExtension)
+        
         let format = formatGroups.flatMap { $0.formats }
             .first { $0.extensions.contains(fileExtension) }
+        print("Detected format:", format?.name ?? "unknown")
 
+        // Handle text files
+        if format?.utType == .plainText || format?.utType == .rtf {
+            print("Handling as text file")
+            do {
+                let text: String
+                if format?.utType == .rtf {
+                    // Handle RTF files
+                    if let data = try? Data(contentsOf: url),
+                       let attributedString = try? NSAttributedString(data: data, options: [.documentType: NSAttributedString.DocumentType.rtf], documentAttributes: nil) {
+                        text = attributedString.string
+                    } else {
+                        print("Failed to load RTF file")
+                        return []
+                    }
+                } else {
+                    // Handle plain text files
+                    text = try String(contentsOf: url, encoding: .utf8)
+                }
+                
+                if let image = await renderTextAsImage(text) {
+                    return [ImageItem(image: image, originalURL: url)]
+                }
+            } catch {
+                print("Error loading text file:", error)
+                return []
+            }
+        }
+        
+        // Handle PDF documents
         if format?.utType == .pdf {
-            // Handle PDF documents
+            print("Handling as PDF file")
             var items: [ImageItem] = []
             if let pdfDoc = PDFDocument(url: url) {
                 for i in 0..<pdfDoc.pageCount {
@@ -698,10 +738,24 @@ struct ContentView: View {
                 }
             }
             return items
-        } else if let image = NSImage(contentsOf: url) {
-            // Handle image files
-            return [ImageItem(image: image, originalURL: url)]
         }
+        
+        // Handle image files
+        print("Attempting to load as image")
+        if let image = NSImage(contentsOf: url) {
+            print("Successfully loaded image")
+            return [ImageItem(image: image, originalURL: url)]
+        } else {
+            print("Failed to load image directly, trying data method")
+            // Try loading as data first
+            if let data = try? Data(contentsOf: url),
+               let image = NSImage(data: data) {
+                print("Successfully loaded image from data")
+                return [ImageItem(image: image, originalURL: url)]
+            }
+        }
+        
+        print("Failed to load document")
         return []
     }
 
@@ -709,15 +763,17 @@ struct ContentView: View {
         print("Rendering text as image")
         // Add padding to make the text more readable
         let padding: CGFloat = 20
+        let maxWidth: CGFloat = 800 // Maximum width for better readability
 
         let attributedString = NSAttributedString(
             string: text,
             attributes: [
-                .font: NSFont.systemFont(ofSize: 12),
+                .font: NSFont.systemFont(ofSize: 14), // Slightly larger font
                 .foregroundColor: NSColor.textColor,
                 .paragraphStyle: {
                     let style = NSMutableParagraphStyle()
-                    style.lineSpacing = 4
+                    style.lineSpacing = 6 // Increased line spacing
+                    style.alignment = .left
                     return style
                 }()
             ]
@@ -727,7 +783,7 @@ struct ContentView: View {
         let layoutManager = NSLayoutManager()
         textStorage.addLayoutManager(layoutManager)
 
-        let textContainer = NSTextContainer(size: CGSize(width: 600 - (padding * 2), height: CGFloat.greatestFiniteMagnitude))
+        let textContainer = NSTextContainer(size: CGSize(width: maxWidth - (padding * 2), height: CGFloat.greatestFiniteMagnitude))
         textContainer.lineFragmentPadding = 0
         layoutManager.addTextContainer(textContainer)
 
@@ -748,7 +804,11 @@ struct ContentView: View {
 
             // Draw background
             NSColor.textBackgroundColor.set()
-            NSBezierPath(rect: bounds).fill()
+            NSBezierPath(rect: NSRect(origin: .zero, size: bounds.size)).fill()
+
+            // Draw a subtle border
+            NSColor.separatorColor.set()
+            NSBezierPath(rect: NSRect(origin: .zero, size: bounds.size)).stroke()
 
             // Draw text with padding
             layoutManager.drawGlyphs(forGlyphRange: glyphRange, at: CGPoint(x: padding, y: padding))
@@ -1136,3 +1196,38 @@ struct ContentView: View {
     ContentView(windowId: "Main")
 }
 
+extension NSItemProvider {
+    func loadDataRepresentation(forTypeIdentifier typeIdentifier: String) async throws -> Data {
+        return try await withCheckedThrowingContinuation { continuation in
+            loadDataRepresentation(forTypeIdentifier: typeIdentifier) { data, error in
+                if let data = data {
+                    continuation.resume(returning: data)
+                } else if let error = error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(throwing: NSError(domain: "NSItemProviderError", code: -1))
+                }
+            }
+        }
+    }
+    func loadFileURL(forTypeIdentifier typeIdentifier: String) async throws -> URL {
+        return try await withCheckedThrowingContinuation { continuation in
+            loadItem(forTypeIdentifier: typeIdentifier, options: nil) { (urlData, error) in
+                if let error = error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+
+                if let url = urlData as? URL {
+                    continuation.resume(returning: url)
+                } else if let urlData = urlData as? Data,
+                          let urlString = String(data: urlData, encoding: .utf8) {
+                    let fileURL = URL(fileURLWithPath: urlString.replacingOccurrences(of: "file://", with: ""))
+                    continuation.resume(returning: fileURL.resolvingSymlinksInPath())
+                } else {
+                    continuation.resume(throwing: NSError(domain: "NSItemProvider", code: -1, userInfo: nil))
+                }
+            }
+        }
+    }
+}
