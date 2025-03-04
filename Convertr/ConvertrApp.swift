@@ -87,10 +87,6 @@ struct ConvertrApp: App {
     @StateObject private var fileTypeState = FileTypeState.shared
     
     var body: some Scene {
-        WindowGroup("main") {
-            ContentView(windowId: "main")
-                .environmentObject(windowManager)
-        }
         
         // Images window
         Window("Images", id: "Images") {
