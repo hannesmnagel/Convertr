@@ -127,6 +127,7 @@ struct ControlBarView: View {
                     Label("Select Files", systemImage: "doc.on.doc")
                 }
                 .buttonStyle(.bordered)
+                .keyboardShortcut("o", modifiers: .command)
 
                 Button(action: onClear) {
                     Label("Clear All", systemImage: "trash")
